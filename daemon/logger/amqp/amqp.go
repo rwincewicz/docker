@@ -170,7 +170,6 @@ func (s *amqpLogger) Log(msg *logger.Message) error {
 			fmt.Errorf("Could not send message - %v", err)
 		}
 	}
-
 	return nil
 }
 
