@@ -4,8 +4,10 @@ package amqp
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/Sirupsen/logrus"
@@ -75,33 +77,58 @@ func New(ctx logger.Context) (logger.Logger, error) {
 		Created:       ctx.ContainerCreated,
 	}
 
-	connectURL := "amqp://" + ctx.Config["amqp-username"] + ":" + ctx.Config["amqp-password"] + "@" + ctx.Config["amqp-host"] + ":" + ctx.Config["amqp-port"] + "/" + ctx.Config["amqp-vhost"]
+	var conn *amqp.Connection
 
-	logrus.Infof("Connecting to AMQP: %s", connectURL)
-
-	conn, err := amqp.Dial(connectURL)
+	connectURL, err := url.Parse(ctx.Config["amqp-url"])
 	if err != nil {
-		fmt.Errorf("Could not connect to AMQP server", err)
+		logrus.Errorf("Invalid AMQP URL - %v", err)
+		return nil, err
+	}
+
+	if connectURL.Scheme == "amqps" {
+		logrus.Infof("Connecting to AMQP: %s", connectURL)
+
+		cfg := new(tls.Config)
+		if cert, err := tls.LoadX509KeyPair(ctx.Config["amqp-cert"], ctx.Config["amqp-key"]); err == nil {
+			cfg.Certificates = append(cfg.Certificates, cert)
+		}
+		conn, err = amqp.DialTLS(connectURL.String(), cfg)
+		if err != nil {
+			fmt.Errorf("Could not connect to AMQP server - %v", err)
+			return nil, err
+		}
+	} else {
+		logrus.Infof("Connecting to AMQP: %s", connectURL)
+
+		conn, err = amqp.Dial(connectURL.String())
+		if err != nil {
+			fmt.Errorf("Could not connect to AMQP server - %v", err)
+			return nil, err
+		}
 	}
 
 	c, err := conn.Channel()
 	if err != nil {
-		fmt.Errorf("Could not open channel", err)
+		fmt.Errorf("Could not open channel - %v", err)
+		return nil, err
 	}
 
 	err = c.ExchangeDeclare(ctx.Config["amqp-exchange"], "direct", true, false, false, false, nil)
 	if err != nil {
-		fmt.Errorf("Could not create exchange")
+		fmt.Errorf("Could not create exchange - %v", err)
+		return nil, err
 	}
 
 	_, err = c.QueueDeclare(ctx.Config["amqp-queue"], true, false, false, false, nil)
 	if err != nil {
-		fmt.Errorf("Could not create queue", err)
+		fmt.Errorf("Could not create queue - %v", err)
+		return nil, err
 	}
 
 	err = c.QueueBind(ctx.Config["amqp-queue"], ctx.Config["amqp-routingkey"], ctx.Config["amqp-exchange"], false, nil)
 	if err != nil {
-		fmt.Errorf("Could not bind queue to exchange", err)
+		fmt.Errorf("Could not bind queue to exchange - %v", err)
+		return nil, err
 	}
 
 	return &amqpLogger{
@@ -132,7 +159,7 @@ func (s *amqpLogger) Log(msg *logger.Message) error {
 
 	messagejson, err := json.Marshal(m)
 	if err != nil {
-		fmt.Errorf("Could not serialise event", err)
+		fmt.Errorf("Could not serialise event - %v", err)
 	}
 
 	amqpmsg := amqp.Publishing{
@@ -144,7 +171,7 @@ func (s *amqpLogger) Log(msg *logger.Message) error {
 
 	err = s.c.Publish(s.ctx.Config["amqp-exchange"], s.ctx.Config["amqp-routingkey"], false, false, amqpmsg)
 	if err != nil {
-		fmt.Errorf("Could not send message", err)
+		fmt.Errorf("Could not send message - %v", err)
 	}
 
 	return nil
@@ -162,12 +189,11 @@ func (s *amqpLogger) Name() string {
 func ValidateLogOpt(cfg map[string]string) error {
 	for key := range cfg {
 		switch key {
-		case "amqp-host":
-		case "amqp-port":
-		case "amqp-vhost":
-		case "amqp-username":
-		case "amqp-password":
+		case "amqp-cert":
+		case "amqp-key":
+		case "amqp-url":
 		case "amqp-exchange":
+		case "amqp-queue":
 		case "amqp-routingkey":
 		case "amqp-tag":
 		default:
