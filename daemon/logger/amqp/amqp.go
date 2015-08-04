@@ -18,12 +18,35 @@ import (
 const name = "amqp"
 
 type amqpLogger struct {
-	ctx    logger.Context
-	fields amqpFields
-	conn   *amqp.Connection
-	c      *amqp.Channel
+	ctx        logger.Context
+	fields     amqpFields
+	connection *amqpConnection
 }
 
+// Data structure holding information about the current connection
+// with a broker as well as a list of other available brokers
+type amqpConnection struct {
+	broker     int
+	brokerURLs []*amqpBroker
+	conn       *amqp.Connection
+	c          *amqp.Channel
+	conf       <-chan amqp.Confirmation
+	err        error
+}
+
+// Data structure to hold the connection settings for each broker
+type amqpBroker struct {
+	BrokerURL  *url.URL
+	Exchange   string
+	Queue      string
+	RoutingKey string
+	Tag        string
+	CertPath   string
+	KeyPath    string
+	Confirm    bool
+}
+
+// Data structure to store the data for the log message
 type amqpMessage struct {
 	Message   string     `json:"message"`
 	Version   string     `json:"@version"`
@@ -33,6 +56,8 @@ type amqpMessage struct {
 	Path      string     `json:"path"`
 }
 
+// Data about the host and container that is required when sending
+// the log message
 type amqpFields struct {
 	Hostname      string
 	ContainerID   string
@@ -51,7 +76,6 @@ func init() {
 	if err := logger.RegisterLogOptValidator(name, ValidateLogOpt); err != nil {
 		logrus.Fatal(err)
 	}
-
 }
 
 // New creates a new amqp logger using the configuration passed in the
@@ -62,6 +86,8 @@ func New(ctx logger.Context) (logger.Logger, error) {
 	if err != nil {
 		return nil, fmt.Errorf("Cannot access hostname to set source field: %v", err)
 	}
+
+	logrus.Infof("URLs: %v", ctx.Config["amqp-url"])
 
 	// remove trailing slash from container name
 	containerName := bytes.TrimLeft([]byte(ctx.ContainerName), "/")
@@ -106,40 +132,68 @@ func New(ctx logger.Context) (logger.Logger, error) {
 		}
 	}
 
-	c, err := conn.Channel()
+	c, err = conn.Channel()
 	if err != nil {
 		fmt.Errorf("Could not open channel - %v", err)
 		return nil, err
 	}
 
-	err = c.ExchangeDeclare(ctx.Config["amqp-exchange"], "direct", true, false, false, false, nil)
+	err = c.ExchangeDeclare(currentBroker.Exchange, "direct", true, false, false, false, nil)
 	if err != nil {
 		fmt.Errorf("Could not create exchange - %v", err)
 		return nil, err
 	}
 
-	_, err = c.QueueDeclare(ctx.Config["amqp-queue"], true, false, false, false, nil)
+	_, err = c.QueueDeclare(currentBroker.Queue, true, false, false, false, nil)
 	if err != nil {
 		fmt.Errorf("Could not create queue - %v", err)
 		return nil, err
 	}
 
-	err = c.QueueBind(ctx.Config["amqp-queue"], ctx.Config["amqp-routingkey"], ctx.Config["amqp-exchange"], false, nil)
+	err = c.QueueBind(currentBroker.Queue, currentBroker.RoutingKey, currentBroker.Exchange, false, nil)
 	if err != nil {
 		fmt.Errorf("Could not bind queue to exchange - %v", err)
 		return nil, err
 	}
 
-	return &amqpLogger{
-		ctx:    ctx,
-		fields: fields,
-		conn:   conn,
-		c:      c,
+	logrus.Info("Connection set up")
+	return &amqpConnection{
+		broker:     broker,
+		brokerURLs: brokerURLs,
+		conn:       conn,
+		c:          c,
+		conf:       conf,
+		err:        err,
 	}, nil
 }
 
-func (s *amqpLogger) Log(msg *logger.Message) error {
-	// remove trailing and leading whitespace
+// If the connection fails at any point then close the current connection and
+// try to connect to the next broker in the list.
+func reconnect(s *amqpLogger) (err error) {
+	logrus.Warn("Unable to send message to AMQP broker")
+	logrus.Info("Attempting to reconnect")
+	s.Close()
+	// Move to the next broker in the list. If at the end of the
+	// list then go back to the start
+	if len(s.connection.brokerURLs) > s.connection.broker+1 {
+		s.connection.broker++
+	} else {
+		s.connection.broker = 0
+	}
+	connection, err := connect(s.ctx, s.connection.broker)
+	if err != nil {
+		logrus.Errorf("Could not reconnect: %v", err)
+		return err
+	} else {
+		logrus.Info("Reconnected")
+		s.connection = connection
+		return nil
+	}
+}
+
+// Take the log message and publish it to the currently connected broker
+func (s *amqpLogger) Log(msg *logger.Message) (err error) {
+	// Remove trailing and leading whitespace
 	short := bytes.TrimSpace([]byte(msg.Line))
 
 	if string(short) != "" {
@@ -172,8 +226,18 @@ func (s *amqpLogger) Log(msg *logger.Message) error {
 	return nil
 }
 
+// Cleanly close the connection with the broker.
 func (s *amqpLogger) Close() error {
-	return s.conn.Close()
+	logrus.Info("Closing connection")
+	if s.connection != nil {
+		if s.connection.c != nil {
+			s.connection.c.Close()
+		}
+		if s.connection.conn != nil {
+			s.connection.conn.Close()
+		}
+	}
+	return nil
 }
 
 func (s *amqpLogger) Name() string {
@@ -191,6 +255,8 @@ func ValidateLogOpt(cfg map[string]string) error {
 		case "amqp-queue":
 		case "amqp-routingkey":
 		case "amqp-tag":
+		case "amqp-confirm":
+		case "amqp-settings":
 		default:
 			return fmt.Errorf("unknown log opt '%s' for amqp log driver", key)
 		}
