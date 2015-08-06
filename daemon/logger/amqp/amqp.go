@@ -157,6 +157,32 @@ func (s *amqpLogger) Log(msg *logger.Message) error {
 		Tags:      s.fields,
 	}
 
+	return &AMQPLogger{
+		ctx:    ctx,
+		fields: fields,
+		conn:   conn,
+		c:      c,
+	}, nil
+}
+
+func (s *AMQPLogger) Log(msg *logger.Message) error {
+	// remove trailing and leading whitespace
+	short := bytes.TrimSpace([]byte(msg.Line))
+
+	//level := "INFO"
+	//if msg.Source == "stderr" {
+	//		level = "ERROR"
+	//	}
+
+	m := AMQPMessage{
+		Version:   "1",
+		Host:      s.fields.Hostname,
+		Message:   string(short),
+		Timestamp: time.Now(),
+		Path:      s.fields.ContainerId,
+		Tags:      s.fields,
+	}
+
 	messagejson, err := json.Marshal(m)
 	if err != nil {
 		fmt.Errorf("Could not serialise event - %v", err)
