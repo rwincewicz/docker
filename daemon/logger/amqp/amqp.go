@@ -99,7 +99,6 @@ func New(ctx logger.Context) (logger.Logger, error) {
 		}
 	} else {
 		logrus.Infof("Connecting to AMQP: %s", connectURL)
-
 		conn, err = amqp.Dial(connectURL.String())
 		if err != nil {
 			fmt.Errorf("Could not connect to AMQP server - %v", err)
