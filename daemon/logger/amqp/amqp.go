@@ -15,27 +15,27 @@ import (
 
 const name = "amqp"
 
-type AMQPLogger struct {
+type amqpLogger struct {
 	ctx    logger.Context
-	fields AMQPFields
+	fields amqpFields
 	conn   *amqp.Connection
 	c      *amqp.Channel
 }
 
-type AMQPMessage struct {
+type amqpMessage struct {
 	Message   string     `json:"message"`
 	Version   string     `json:"@version"`
 	Timestamp time.Time  `json:"@timestamp"`
-	Tags      AMQPFields `json:"tags"`
+	Tags      amqpFields `json:"tags"`
 	Host      string     `json:"host"`
 	Path      string     `json:"path"`
 }
 
-type AMQPFields struct {
+type amqpFields struct {
 	Hostname      string
-	ContainerId   string
+	ContainerID   string
 	ContainerName string
-	ImageId       string
+	ImageID       string
 	ImageName     string
 	Command       string
 	Tag           string
@@ -52,6 +52,8 @@ func init() {
 
 }
 
+// New creates a new amqp logger using the configuration passed in the
+// context.
 func New(ctx logger.Context) (logger.Logger, error) {
 	// collect extra data for AMQP message
 	hostname, err := ctx.Hostname()
@@ -62,7 +64,7 @@ func New(ctx logger.Context) (logger.Logger, error) {
 	// remove trailing slash from container name
 	containerName := bytes.TrimLeft([]byte(ctx.ContainerName), "/")
 
-	fields := AMQPFields{
+	fields := amqpFields{
 		Hostname:      hostname,
 		ContainerId:   ctx.ContainerID,
 		ContainerName: string(containerName),
@@ -73,11 +75,11 @@ func New(ctx logger.Context) (logger.Logger, error) {
 		Created:       ctx.ContainerCreated,
 	}
 
-	connectUrl := "amqp://" + ctx.Config["amqp-username"] + ":" + ctx.Config["amqp-password"] + "@" + ctx.Config["amqp-host"] + ":" + ctx.Config["amqp-port"] + "/" + ctx.Config["amqp-vhost"]
+	connectURL := "amqp://" + ctx.Config["amqp-username"] + ":" + ctx.Config["amqp-password"] + "@" + ctx.Config["amqp-host"] + ":" + ctx.Config["amqp-port"] + "/" + ctx.Config["amqp-vhost"]
 
-	logrus.Infof("Connecting to AMQP: %s", connectUrl)
+	logrus.Infof("Connecting to AMQP: %s", connectURL)
 
-	conn, err := amqp.Dial(connectUrl)
+	conn, err := amqp.Dial(connectURL)
 	if err != nil {
 		fmt.Errorf("Could not connect to AMQP server", err)
 	}
@@ -102,7 +104,7 @@ func New(ctx logger.Context) (logger.Logger, error) {
 		fmt.Errorf("Could not bind queue to exchange", err)
 	}
 
-	return &AMQPLogger{
+	return &amqpLogger{
 		ctx:    ctx,
 		fields: fields,
 		conn:   conn,
@@ -110,7 +112,7 @@ func New(ctx logger.Context) (logger.Logger, error) {
 	}, nil
 }
 
-func (s *AMQPLogger) Log(msg *logger.Message) error {
+func (s *amqpLogger) Log(msg *logger.Message) error {
 	// remove trailing and leading whitespace
 	short := bytes.TrimSpace([]byte(msg.Line))
 
@@ -119,7 +121,7 @@ func (s *AMQPLogger) Log(msg *logger.Message) error {
 	//		level = "ERROR"
 	//	}
 
-	m := AMQPMessage{
+	m := amqpMessage{
 		Version:   "1",
 		Host:      s.fields.Hostname,
 		Message:   string(short),
@@ -148,14 +150,15 @@ func (s *AMQPLogger) Log(msg *logger.Message) error {
 	return nil
 }
 
-func (s *AMQPLogger) Close() error {
+func (s *amqpLogger) Close() error {
 	return s.conn.Close()
 }
 
-func (s *AMQPLogger) Name() string {
+func (s *amqpLogger) Name() string {
 	return name
 }
 
+// ValidateLogOpt checks for the amqp-specific log options
 func ValidateLogOpt(cfg map[string]string) error {
 	for key := range cfg {
 		switch key {
