@@ -157,7 +157,7 @@ func (s *amqpLogger) Log(msg *logger.Message) error {
 		Tags:      s.fields,
 	}
 
-	return &AMQPLogger{
+	return &amqpLogger{
 		ctx:    ctx,
 		fields: fields,
 		conn:   conn,
@@ -165,7 +165,7 @@ func (s *amqpLogger) Log(msg *logger.Message) error {
 	}, nil
 }
 
-func (s *AMQPLogger) Log(msg *logger.Message) error {
+func (s *amqpLogger) Log(msg *logger.Message) error {
 	// remove trailing and leading whitespace
 	short := bytes.TrimSpace([]byte(msg.Line))
 
@@ -174,7 +174,7 @@ func (s *AMQPLogger) Log(msg *logger.Message) error {
 	//		level = "ERROR"
 	//	}
 
-	m := AMQPMessage{
+	m := amqpMessage{
 		Version:   "1",
 		Host:      s.fields.Hostname,
 		Message:   string(short),
