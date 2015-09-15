@@ -179,7 +179,7 @@ func (s *amqpLogger) Log(msg *logger.Message) error {
 		Host:      s.fields.Hostname,
 		Message:   string(short),
 		Timestamp: time.Now(),
-		Path:      s.fields.ContainerId,
+		Path:      s.fields.ContainerID,
 		Tags:      s.fields,
 	}
 
