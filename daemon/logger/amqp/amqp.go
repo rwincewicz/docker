@@ -66,9 +66,9 @@ func New(ctx logger.Context) (logger.Logger, error) {
 
 	fields := amqpFields{
 		Hostname:      hostname,
-		ContainerId:   ctx.ContainerID,
+		ContainerID:   ctx.ContainerID,
 		ContainerName: string(containerName),
-		ImageId:       ctx.ContainerImageID,
+		ImageID:       ctx.ContainerImageID,
 		ImageName:     ctx.ContainerImageName,
 		Command:       ctx.Command(),
 		Tag:           ctx.Config["amqp-tag"],
@@ -126,7 +126,7 @@ func (s *amqpLogger) Log(msg *logger.Message) error {
 		Host:      s.fields.Hostname,
 		Message:   string(short),
 		Timestamp: time.Now(),
-		Path:      s.fields.ContainerId,
+		Path:      s.fields.ContainerID,
 		Tags:      s.fields,
 	}
 
