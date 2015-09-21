@@ -19,6 +19,7 @@ import (
 	"github.com/docker/docker/daemon/logger"
 	"github.com/docker/docker/daemon/logger/jsonfilelog"
 	"github.com/docker/docker/daemon/network"
+	derr "github.com/docker/docker/errors"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/broadcastwriter"
@@ -38,15 +39,6 @@ var (
 	// rootfs is marked readonly.
 	ErrRootFSReadOnly = errors.New("container rootfs is marked read-only")
 )
-
-// ErrContainerNotRunning holds the id of the container that is not running.
-type ErrContainerNotRunning struct {
-	id string
-}
-
-func (e ErrContainerNotRunning) Error() string {
-	return fmt.Sprintf("Container %s is not running", e.id)
-}
 
 type streamConfig struct {
 	stdout    *broadcastwriter.BroadcastWriter
@@ -229,7 +221,7 @@ func (container *Container) getRootResourcePath(path string) (string, error) {
 
 func (container *Container) exportContainerRw() (archive.Archive, error) {
 	if container.daemon == nil {
-		return nil, fmt.Errorf("Can't load storage driver for unregistered container %s", container.ID)
+		return nil, derr.ErrorCodeUnregisteredContainer.WithArgs(container.ID)
 	}
 	archive, err := container.daemon.diff(container)
 	if err != nil {
@@ -255,7 +247,7 @@ func (container *Container) Start() (err error) {
 	}
 
 	if container.removalInProgress || container.Dead {
-		return fmt.Errorf("Container is marked for removal and cannot be started.")
+		return derr.ErrorCodeContainerBeingRemoved
 	}
 
 	// if we encounter an error during start we need to ensure that any other
@@ -303,26 +295,6 @@ func (container *Container) Start() (err error) {
 
 	container.command.Mounts = mounts
 	return container.waitForStart()
-}
-
-func (container *Container) run() error {
-	if err := container.Start(); err != nil {
-		return err
-	}
-	container.HasBeenStartedBefore = true
-	container.WaitStop(-1 * time.Second)
-	return nil
-}
-
-func (container *Container) output() (output []byte, err error) {
-	pipe := container.StdoutPipe()
-	defer pipe.Close()
-	if err := container.Start(); err != nil {
-		return nil, err
-	}
-	output, err = ioutil.ReadAll(pipe)
-	container.WaitStop(-1 * time.Second)
-	return output, err
 }
 
 // streamConfig.StdinPipe returns a WriteCloser which can be used to feed data
@@ -381,11 +353,11 @@ func (container *Container) killSig(sig int) error {
 
 	// We could unpause the container for them rather than returning this error
 	if container.Paused {
-		return fmt.Errorf("Container %s is paused. Unpause the container before stopping", container.ID)
+		return derr.ErrorCodeUnpauseContainer.WithArgs(container.ID)
 	}
 
 	if !container.Running {
-		return ErrContainerNotRunning{container.ID}
+		return derr.ErrorCodeNotRunning.WithArgs(container.ID)
 	}
 
 	// signal to the monitor that it should not restart the container
@@ -422,12 +394,12 @@ func (container *Container) pause() error {
 
 	// We cannot Pause the container which is not running
 	if !container.Running {
-		return ErrContainerNotRunning{container.ID}
+		return derr.ErrorCodeNotRunning.WithArgs(container.ID)
 	}
 
 	// We cannot Pause the container which is already paused
 	if container.Paused {
-		return fmt.Errorf("Container %s is already paused", container.ID)
+		return derr.ErrorCodeAlreadyPaused.WithArgs(container.ID)
 	}
 
 	if err := container.daemon.execDriver.Pause(container.command); err != nil {
@@ -444,12 +416,12 @@ func (container *Container) unpause() error {
 
 	// We cannot unpause the container which is not running
 	if !container.Running {
-		return ErrContainerNotRunning{container.ID}
+		return derr.ErrorCodeNotRunning.WithArgs(container.ID)
 	}
 
 	// We cannot unpause the container which is not paused
 	if !container.Paused {
-		return fmt.Errorf("Container %s is not paused", container.ID)
+		return derr.ErrorCodeNotPaused.WithArgs(container.ID)
 	}
 
 	if err := container.daemon.execDriver.Unpause(container.command); err != nil {
@@ -463,7 +435,7 @@ func (container *Container) unpause() error {
 // Kill forcefully terminates a container.
 func (container *Container) Kill() error {
 	if !container.IsRunning() {
-		return ErrContainerNotRunning{container.ID}
+		return derr.ErrorCodeNotRunning.WithArgs(container.ID)
 	}
 
 	// 1. Send SIGKILL
@@ -556,7 +528,7 @@ func (container *Container) Restart(seconds int) error {
 // to the given height and width. The container must be running.
 func (container *Container) Resize(h, w int) error {
 	if !container.IsRunning() {
-		return ErrContainerNotRunning{container.ID}
+		return derr.ErrorCodeNotRunning.WithArgs(container.ID)
 	}
 	if err := container.command.ProcessConfig.Terminal.Resize(h, w); err != nil {
 		return err
@@ -597,7 +569,7 @@ func (container *Container) changes() ([]archive.Change, error) {
 
 func (container *Container) getImage() (*image.Image, error) {
 	if container.daemon == nil {
-		return nil, fmt.Errorf("Can't get image of unregistered container")
+		return nil, derr.ErrorCodeImageUnregContainer
 	}
 	return container.daemon.graph.Get(container.ImageID)
 }
@@ -624,7 +596,7 @@ func (container *Container) rootfsPath() string {
 
 func validateID(id string) error {
 	if id == "" {
-		return fmt.Errorf("Invalid empty id")
+		return derr.ErrorCodeEmptyID
 	}
 	return nil
 }
@@ -722,7 +694,7 @@ func (container *Container) getLogger() (logger.Logger, error) {
 	}
 	c, err := logger.GetLogDriver(cfg.Type)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to get logging factory: %v", err)
+		return nil, derr.ErrorCodeLoggingFactory.WithArgs(err)
 	}
 	ctx := logger.Context{
 		Config:              cfg.Config,
@@ -753,7 +725,7 @@ func (container *Container) startLogging() error {
 
 	l, err := container.getLogger()
 	if err != nil {
-		return fmt.Errorf("Failed to initialize logging driver: %v", err)
+		return derr.ErrorCodeInitLogger.WithArgs(err)
 	}
 
 	copier := logger.NewCopier(container.ID, map[string]io.Reader{"stdout": container.StdoutPipe(), "stderr": container.StderrPipe()}, l)
@@ -811,7 +783,7 @@ func (container *Container) exec(ExecConfig *ExecConfig) error {
 	container.Lock()
 	defer container.Unlock()
 
-	callback := func(processConfig *execdriver.ProcessConfig, pid int) {
+	callback := func(processConfig *execdriver.ProcessConfig, pid int) error {
 		if processConfig.Tty {
 			// The callback is called after the process Start()
 			// so we are in the parent process. In TTY mode, stdin/out/err is the PtySlave
@@ -821,6 +793,7 @@ func (container *Container) exec(ExecConfig *ExecConfig) error {
 			}
 		}
 		close(ExecConfig.waitStart)
+		return nil
 	}
 
 	// We use a callback here instead of a goroutine and an chan for
@@ -837,7 +810,7 @@ func (container *Container) exec(ExecConfig *ExecConfig) error {
 	return nil
 }
 
-func (container *Container) monitorExec(ExecConfig *ExecConfig, callback execdriver.StartCallback) error {
+func (container *Container) monitorExec(ExecConfig *ExecConfig, callback execdriver.DriverCallback) error {
 	var (
 		err      error
 		exitCode int

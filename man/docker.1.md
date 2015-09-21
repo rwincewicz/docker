@@ -56,6 +56,9 @@ To see the man page for a command run **man docker <command>**.
 **--dns**=""
   Force Docker to use specific DNS servers
 
+**--dns-opt**=[]
+  DNS options to use.
+
 **--dns-search**=[]
   DNS search domains to use.
 
@@ -162,7 +165,7 @@ unix://[/path/to/socket] to use.
   Default is false.
 
 **--userland-proxy**=*true*|*false*
-    Rely on a userland proxy implementation for inter-container and outside-to-container loopback communications. Default is false.
+    Rely on a userland proxy implementation for inter-container and outside-to-container loopback communications. Default is true.
 
 **-v**, **--version**=*true*|*false*
   Print version information and quit. Default is false.
@@ -270,7 +273,7 @@ inside it)
   See **docker-rename(1)** for full documentation on the **rename** command.
 
 **restart**
-  Restart a running container
+  Restart a container
   See **docker-restart(1)** for full documentation on the **restart** command.
 
 **rm**

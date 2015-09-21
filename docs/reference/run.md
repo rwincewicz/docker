@@ -330,8 +330,8 @@ traffic will be routed though this bridge to the container.
 With the networking mode set to `host` a container will share the host's
 network stack and all interfaces from the host will be available to the
 container.  The container's hostname will match the hostname on the host
-system.  Note that `--add-host` `--hostname`  `--dns` `--dns-search` and
-`--mac-address` is invalid in `host` netmode.
+system.  Note that `--add-host` `--hostname`  `--dns` `--dns-search`
+`--dns-opt` and `--mac-address` are invalid in `host` netmode.
 
 Compared to the default `bridge` mode, the `host` mode gives *significantly*
 better networking performance since it uses the host's native networking stack
@@ -348,9 +348,9 @@ or a High Performance Web Server.
 With the networking mode set to `container` a container will share the
 network stack of another container.  The other container's name must be
 provided in the format of `--net container:<name|id>`. Note that `--add-host`
-`--hostname` `--dns` `--dns-search` and `--mac-address` is invalid
-in `container` netmode, and `--publish` `--publish-all` `--expose` are also
-invalid in `container` netmode.
+`--hostname` `--dns` `--dns-search` `--dns-opt` and `--mac-address` are
+invalid in `container` netmode, and `--publish` `--publish-all` `--expose` are
+also invalid in `container` netmode.
 
 Example running a Redis container with Redis binding to `localhost` then
 running the `redis-cli` command and connecting to the Redis server over the
@@ -946,7 +946,7 @@ list of capabilities that are kept. The following table lists the Linux capabili
 
 Further reference information is available on the [capabilities(7) - Linux man page](http://linux.die.net/man/7/capabilities)
 
-Both flags support the value `all`, so if the
+Both flags support the value `ALL`, so if the
 operator wants to have all capabilities but `MKNOD` they could use:
 
     $ docker run --cap-add=ALL --cap-drop=MKNOD ...

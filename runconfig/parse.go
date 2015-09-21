@@ -52,6 +52,7 @@ func Parse(cmd *flag.FlagSet, args []string) (*Config, *HostConfig, *flag.FlagSe
 		flExpose      = opts.NewListOpts(nil)
 		flDNS         = opts.NewListOpts(opts.ValidateIPAddress)
 		flDNSSearch   = opts.NewListOpts(opts.ValidateDNSSearch)
+		flDNSOptions  = opts.NewListOpts(nil)
 		flExtraHosts  = opts.NewListOpts(opts.ValidateExtraHost)
 		flVolumesFrom = opts.NewListOpts(nil)
 		flLxcOpts     = opts.NewListOpts(nil)
@@ -79,7 +80,7 @@ func Parse(cmd *flag.FlagSet, args []string) (*Config, *HostConfig, *flag.FlagSe
 		flKernelMemory    = cmd.String([]string{"-kernel-memory"}, "", "Kernel memory limit")
 		flUser            = cmd.String([]string{"u", "-user"}, "", "Username or UID (format: <name|uid>[:<group|gid>])")
 		flWorkingDir      = cmd.String([]string{"w", "-workdir"}, "", "Working directory inside the container")
-		flCPUShares       = cmd.Int64([]string{"c", "-cpu-shares"}, 0, "CPU shares (relative weight)")
+		flCPUShares       = cmd.Int64([]string{"#c", "-cpu-shares"}, 0, "CPU shares (relative weight)")
 		flCPUPeriod       = cmd.Int64([]string{"-cpu-period"}, 0, "Limit CPU CFS (Completely Fair Scheduler) period")
 		flCPUQuota        = cmd.Int64([]string{"-cpu-quota"}, 0, "Limit CPU CFS (Completely Fair Scheduler) quota")
 		flCpusetCpus      = cmd.String([]string{"#-cpuset", "-cpuset-cpus"}, "", "CPUs in which to allow execution (0-3, 0,1)")
@@ -109,6 +110,7 @@ func Parse(cmd *flag.FlagSet, args []string) (*Config, *HostConfig, *flag.FlagSe
 	cmd.Var(&flExpose, []string{"#expose", "-expose"}, "Expose a port or a range of ports")
 	cmd.Var(&flDNS, []string{"#dns", "-dns"}, "Set custom DNS servers")
 	cmd.Var(&flDNSSearch, []string{"-dns-search"}, "Set custom DNS search domains")
+	cmd.Var(&flDNSOptions, []string{"-dns-opt"}, "Set DNS options")
 	cmd.Var(&flExtraHosts, []string{"-add-host"}, "Add a custom host-to-IP mapping (host:ip)")
 	cmd.Var(&flVolumesFrom, []string{"#volumes-from", "-volumes-from"}, "Mount volumes from the specified container(s)")
 	cmd.Var(&flLxcOpts, []string{"#lxc-conf", "-lxc-conf"}, "Add custom lxc options")
@@ -322,7 +324,7 @@ func Parse(cmd *flag.FlagSet, args []string) (*Config, *HostConfig, *flag.FlagSe
 		MacAddress:      *flMacAddress,
 		Entrypoint:      entrypoint,
 		WorkingDir:      *flWorkingDir,
-		Labels:          convertKVStringsToMap(labels),
+		Labels:          ConvertKVStringsToMap(labels),
 		StopSignal:      *flStopSignal,
 	}
 
@@ -347,6 +349,7 @@ func Parse(cmd *flag.FlagSet, args []string) (*Config, *HostConfig, *flag.FlagSe
 		PublishAllPorts:  *flPublishAll,
 		DNS:              flDNS.GetAll(),
 		DNSSearch:        flDNSSearch.GetAll(),
+		DNSOptions:       flDNSOptions.GetAll(),
 		ExtraHosts:       flExtraHosts.GetAll(),
 		VolumesFrom:      flVolumesFrom.GetAll(),
 		NetworkMode:      NetworkMode(*flNetMode),
@@ -391,8 +394,8 @@ func readKVStrings(files []string, override []string) ([]string, error) {
 	return envVariables, nil
 }
 
-// converts ["key=value"] to {"key":"value"}
-func convertKVStringsToMap(values []string) map[string]string {
+// ConvertKVStringsToMap converts ["key=value"] to {"key":"value"}
+func ConvertKVStringsToMap(values []string) map[string]string {
 	result := make(map[string]string, len(values))
 	for _, value := range values {
 		kv := strings.SplitN(value, "=", 2)
@@ -407,7 +410,7 @@ func convertKVStringsToMap(values []string) map[string]string {
 }
 
 func parseLoggingOpts(loggingDriver string, loggingOpts []string) (map[string]string, error) {
-	loggingOptsMap := convertKVStringsToMap(loggingOpts)
+	loggingOptsMap := ConvertKVStringsToMap(loggingOpts)
 	if loggingDriver == "none" && len(loggingOpts) > 0 {
 		return map[string]string{}, fmt.Errorf("Invalid logging opts for driver %s", loggingDriver)
 	}

@@ -12,12 +12,16 @@ import (
 	"golang.org/x/net/websocket"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/docker/distribution/registry/api/errcode"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/context"
 	"github.com/docker/docker/daemon"
+	derr "github.com/docker/docker/errors"
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/signal"
+	"github.com/docker/docker/pkg/version"
 	"github.com/docker/docker/runconfig"
+	"github.com/docker/docker/utils"
 )
 
 func (s *Server) getContainersJSON(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
@@ -58,16 +62,6 @@ func (s *Server) getContainersStats(ctx context.Context, w http.ResponseWriter, 
 	}
 
 	stream := boolValueOrDefault(r, "stream", true)
-
-	// If the container is not running and requires no stream, return an empty stats.
-	container, err := s.daemon.Get(vars["name"])
-	if err != nil {
-		return err
-	}
-	if !container.IsRunning() && !stream {
-		return writeJSON(w, http.StatusOK, &types.Stats{})
-	}
-
 	var out io.Writer
 	if !stream {
 		w.Header().Set("Content-Type", "application/json")
@@ -81,13 +75,15 @@ func (s *Server) getContainersStats(ctx context.Context, w http.ResponseWriter, 
 		closeNotifier = notifier.CloseNotify()
 	}
 
+	version, _ := ctx.Value("api-version").(version.Version)
 	config := &daemon.ContainerStatsConfig{
 		Stream:    stream,
 		OutStream: out,
 		Stop:      closeNotifier,
+		Version:   version,
 	}
 
-	return s.daemon.ContainerStats(container, config)
+	return s.daemon.ContainerStats(vars["name"], config)
 }
 
 func (s *Server) getContainersLogs(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
@@ -98,7 +94,11 @@ func (s *Server) getContainersLogs(ctx context.Context, w http.ResponseWriter, r
 		return fmt.Errorf("Missing parameter")
 	}
 
-	// Validate args here, because we can't return not StatusOK after job.Run() call
+	// Args are validated before the stream starts because when it starts we're
+	// sending HTTP 200 by writing an empty chunk of data to tell the client that
+	// daemon is going to stream. By sending this initial HTTP 200 we can't report
+	// any error after the stream starts (i.e. container not found, wrong parameters)
+	// with the appropriate status code.
 	stdout, stderr := boolValue(r, "stdout"), boolValue(r, "stderr")
 	if !(stdout || stderr) {
 		return fmt.Errorf("Bad parameters: you must choose at least one stream")
@@ -144,7 +144,7 @@ func (s *Server) getContainersLogs(ctx context.Context, w http.ResponseWriter, r
 		// The client may be expecting all of the data we're sending to
 		// be multiplexed, so send it through OutStream, which will
 		// have been set up to handle that if needed.
-		fmt.Fprintf(logsConfig.OutStream, "Error running logs job: %s\n", err)
+		fmt.Fprintf(logsConfig.OutStream, "Error running logs job: %s\n", utils.GetErrorMessage(err))
 	}
 
 	return nil
@@ -184,10 +184,6 @@ func (s *Server) postContainersStart(ctx context.Context, w http.ResponseWriter,
 	}
 
 	if err := s.daemon.ContainerStart(vars["name"], hostConfig); err != nil {
-		if err.Error() == "Container already started" {
-			w.WriteHeader(http.StatusNotModified)
-			return nil
-		}
 		return err
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -205,10 +201,6 @@ func (s *Server) postContainersStop(ctx context.Context, w http.ResponseWriter, 
 	seconds, _ := strconv.Atoi(r.Form.Get("t"))
 
 	if err := s.daemon.ContainerStop(vars["name"], seconds); err != nil {
-		if err.Error() == "Container already stopped" {
-			w.WriteHeader(http.StatusNotModified)
-			return nil
-		}
 		return err
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -236,7 +228,9 @@ func (s *Server) postContainersKill(ctx context.Context, w http.ResponseWriter, 
 	}
 
 	if err := s.daemon.ContainerKill(name, uint64(sig)); err != nil {
-		_, isStopped := err.(daemon.ErrContainerNotRunning)
+		theErr, isDerr := err.(errcode.ErrorCoder)
+		isStopped := isDerr && theErr.ErrorCode() == derr.ErrorCodeNotRunning
+
 		// Return error that's not caused because the container is stopped.
 		// Return error if the container is not running and the api is >= 1.20
 		// to keep backwards compatibility.

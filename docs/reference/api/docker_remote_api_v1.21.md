@@ -186,6 +186,7 @@ Create a container
              "Privileged": false,
              "ReadonlyRootfs": false,
              "Dns": ["8.8.8.8"],
+             "DnsOptions": [""],
              "DnsSearch": [""],
              "ExtraHosts": null,
              "VolumesFrom": ["parent", "other:ro"],
@@ -272,6 +273,7 @@ Json Parameters:
     -   **ReadonlyRootfs** - Mount the container's root filesystem as read only.
           Specified as a boolean value.
     -   **Dns** - A list of DNS servers for the container to use.
+    -   **DnsOptions** - A list of DNS options
     -   **DnsSearch** - A list of DNS search domains
     -   **ExtraHosts** - A list of hostnames/IP mappings to add to the
         container's `/etc/hosts` file. Specified in the form `["hostname:IP"]`.
@@ -388,6 +390,7 @@ Return low-level information on the container `id`
 			"CpuPeriod": 100000,
 			"Devices": [],
 			"Dns": null,
+			"DnsOptions": null,
 			"DnsSearch": null,
 			"ExtraHosts": null,
 			"IpcMode": "",
@@ -631,15 +634,27 @@ This endpoint returns a live stream of a container's resource usage statistics.
 
       {
          "read" : "2015-01-08T22:57:31.547920715Z",
-         "network" : {
-            "rx_dropped" : 0,
-            "rx_bytes" : 648,
-            "rx_errors" : 0,
-            "tx_packets" : 8,
-            "tx_dropped" : 0,
-            "rx_packets" : 8,
-            "tx_errors" : 0,
-            "tx_bytes" : 648
+         "network": {
+                 "eth0": {
+                     "rx_bytes": 5338,
+                     "rx_dropped": 0,
+                     "rx_errors": 0,
+                     "rx_packets": 36,
+                     "tx_bytes": 648,
+                     "tx_dropped": 0,
+                     "tx_errors": 0,
+                     "tx_packets": 8
+                 },
+                 "eth5": {
+                     "rx_bytes": 4641,
+                     "rx_dropped": 0,
+                     "rx_errors": 0,
+                     "rx_packets": 26,
+                     "tx_bytes": 690,
+                     "tx_dropped": 0,
+                     "tx_errors": 0,
+                     "tx_packets": 9
+                 }
          },
          "memory_stats" : {
             "stats" : {
@@ -1352,6 +1367,11 @@ Query Parameters:
 -   **memswap** - Total memory (memory + swap), `-1` to disable swap.
 -   **cpushares** - CPU shares (relative weight).
 -   **cpusetcpus** - CPUs in which to allow execution (e.g., `0-3`, `0,1`).
+-   **buildargs** – JSON map of string pairs for build-time variables. Users pass
+        these values at build-time. Docker uses the `buildargs` as the environment
+        context for command(s) run via the Dockerfile's `RUN` instruction or for
+        variable expansion in other Dockerfile instructions. This is not meant for
+        passing secret values. [Read more about the buildargs instruction](/reference/builder/#arg)
 
     Request Headers:
 
@@ -1840,6 +1860,7 @@ Display system-wide information
         },
         "SwapLimit": false,
         "SystemTime": "2015-03-10T11:11:23.730591467-07:00"
+        "ServerVersion": "1.9.0"
     }
 
 Status Codes:
@@ -1994,10 +2015,10 @@ and Docker images report:
     HTTP/1.1 200 OK
     Content-Type: application/json
 
-    {"status": "create", "id": "dfdf82bd3881","from": "ubuntu:latest", "time":1374067924}
-    {"status": "start", "id": "dfdf82bd3881","from": "ubuntu:latest", "time":1374067924}
-    {"status": "stop", "id": "dfdf82bd3881","from": "ubuntu:latest", "time":1374067966}
-    {"status": "destroy", "id": "dfdf82bd3881","from": "ubuntu:latest", "time":1374067970}
+    {"status":"pull","id":"busybox:latest","time":1442421700,"timeNano":1442421700598988358}
+    {"status":"create","id":"5745704abe9caa5","from":"busybox","time":1442421716,"timeNano":1442421716853979870}
+    {"status":"attach","id":"5745704abe9caa5","from":"busybox","time":1442421716,"timeNano":1442421716894759198}
+    {"status":"start","id":"5745704abe9caa5","from":"busybox","time":1442421716,"timeNano":1442421716983607193}
 
 Query Parameters:
 

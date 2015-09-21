@@ -15,6 +15,7 @@ import (
 	"github.com/docker/docker/volume"
 	volumedrivers "github.com/docker/docker/volume/drivers"
 	"github.com/docker/docker/volume/local"
+	"github.com/docker/docker/volume/store"
 )
 
 //
@@ -174,7 +175,7 @@ func TestLoadWithVolume(t *testing.T) {
 	}
 
 	hostConfig := `{"Binds":[],"ContainerIDFile":"","LxcConf":[],"Memory":0,"MemorySwap":0,"CpuShares":0,"CpusetCpus":"",
-"Privileged":false,"PortBindings":{},"Links":null,"PublishAllPorts":false,"Dns":null,"DnsSearch":null,"ExtraHosts":null,"VolumesFrom":null,
+"Privileged":false,"PortBindings":{},"Links":null,"PublishAllPorts":false,"Dns":null,"DnsOptions":null,"DnsSearch":null,"ExtraHosts":null,"VolumesFrom":null,
 "Devices":[],"NetworkMode":"bridge","IpcMode":"","PidMode":"","CapAdd":null,"CapDrop":null,"RestartPolicy":{"Name":"no","MaximumRetryCount":0},
 "SecurityOpt":null,"ReadonlyRootfs":false,"Ulimits":null,"LogConfig":{"Type":"","Config":null},"CgroupParent":""}`
 	if err = ioutil.WriteFile(filepath.Join(containerPath, "hostconfig.json"), []byte(hostConfig), 0644); err != nil {
@@ -262,7 +263,7 @@ func TestLoadWithBindMount(t *testing.T) {
 	}
 
 	hostConfig := `{"Binds":["/vol1:/vol1"],"ContainerIDFile":"","LxcConf":[],"Memory":0,"MemorySwap":0,"CpuShares":0,"CpusetCpus":"",
-"Privileged":false,"PortBindings":{},"Links":null,"PublishAllPorts":false,"Dns":null,"DnsSearch":null,"ExtraHosts":null,"VolumesFrom":null,
+"Privileged":false,"PortBindings":{},"Links":null,"PublishAllPorts":false,"Dns":null,"DnsOptions":null,"DnsSearch":null,"ExtraHosts":null,"VolumesFrom":null,
 "Devices":[],"NetworkMode":"bridge","IpcMode":"","PidMode":"","CapAdd":null,"CapDrop":null,"RestartPolicy":{"Name":"no","MaximumRetryCount":0},
 "SecurityOpt":null,"ReadonlyRootfs":false,"Ulimits":null,"LogConfig":{"Type":"","Config":null},"CgroupParent":""}`
 	if err = ioutil.WriteFile(filepath.Join(containerPath, "hostconfig.json"), []byte(hostConfig), 0644); err != nil {
@@ -353,7 +354,7 @@ func TestLoadWithVolume17RC(t *testing.T) {
 	}
 
 	hostConfig := `{"Binds":[],"ContainerIDFile":"","LxcConf":[],"Memory":0,"MemorySwap":0,"CpuShares":0,"CpusetCpus":"",
-"Privileged":false,"PortBindings":{},"Links":null,"PublishAllPorts":false,"Dns":null,"DnsSearch":null,"ExtraHosts":null,"VolumesFrom":null,
+"Privileged":false,"PortBindings":{},"Links":null,"PublishAllPorts":false,"Dns":null,"DnsOptions":null,"DnsSearch":null,"ExtraHosts":null,"VolumesFrom":null,
 "Devices":[],"NetworkMode":"bridge","IpcMode":"","PidMode":"","CapAdd":null,"CapDrop":null,"RestartPolicy":{"Name":"no","MaximumRetryCount":0},
 "SecurityOpt":null,"ReadonlyRootfs":false,"Ulimits":null,"LogConfig":{"Type":"","Config":null},"CgroupParent":""}`
 	if err = ioutil.WriteFile(filepath.Join(containerPath, "hostconfig.json"), []byte(hostConfig), 0644); err != nil {
@@ -458,7 +459,7 @@ func TestRemoveLocalVolumesFollowingSymlinks(t *testing.T) {
 	}
 
 	hostConfig := `{"Binds":[],"ContainerIDFile":"","LxcConf":[],"Memory":0,"MemorySwap":0,"CpuShares":0,"CpusetCpus":"",
-"Privileged":false,"PortBindings":{},"Links":null,"PublishAllPorts":false,"Dns":null,"DnsSearch":null,"ExtraHosts":null,"VolumesFrom":null,
+"Privileged":false,"PortBindings":{},"Links":null,"PublishAllPorts":false,"Dns":null,"DnsOptions":null,"DnsSearch":null,"ExtraHosts":null,"VolumesFrom":null,
 "Devices":[],"NetworkMode":"bridge","IpcMode":"","PidMode":"","CapAdd":null,"CapDrop":null,"RestartPolicy":{"Name":"no","MaximumRetryCount":0},
 "SecurityOpt":null,"ReadonlyRootfs":false,"Ulimits":null,"LogConfig":{"Type":"","Config":null},"CgroupParent":""}`
 	if err = ioutil.WriteFile(filepath.Join(containerPath, "hostconfig.json"), []byte(hostConfig), 0644); err != nil {
@@ -505,7 +506,7 @@ func initDaemonForVolumesTest(tmp string) (*Daemon, error) {
 	daemon := &Daemon{
 		repository: tmp,
 		root:       tmp,
-		volumes:    newVolumeStore([]volume.Volume{}),
+		volumes:    store.New(),
 	}
 
 	volumesDriver, err := local.New(tmp)

@@ -3,10 +3,10 @@
 package daemon
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/docker/docker/daemon/execdriver"
+	derr "github.com/docker/docker/errors"
 )
 
 // DefaultPathEnv is deliberately empty on Windows as the default path will be set by
@@ -64,7 +64,7 @@ func populateCommand(c *Container, env []string) error {
 			}
 		}
 	default:
-		return fmt.Errorf("invalid network mode: %s", c.hostConfig.NetworkMode)
+		return derr.ErrorCodeInvalidNetworkMode.WithArgs(c.hostConfig.NetworkMode)
 	}
 
 	pid := &execdriver.Pid{}
@@ -90,22 +90,22 @@ func populateCommand(c *Container, env []string) error {
 	var layerPaths []string
 	img, err := c.daemon.graph.Get(c.ImageID)
 	if err != nil {
-		return fmt.Errorf("Failed to graph.Get on ImageID %s - %s", c.ImageID, err)
+		return derr.ErrorCodeGetGraph.WithArgs(c.ImageID, err)
 	}
 	for i := img; i != nil && err == nil; i, err = c.daemon.graph.GetParent(i) {
 		lp, err := c.daemon.driver.Get(i.ID, "")
 		if err != nil {
-			return fmt.Errorf("Failed to get layer path from graphdriver %s for ImageID %s - %s", c.daemon.driver.String(), i.ID, err)
+			return derr.ErrorCodeGetLayer.WithArgs(c.daemon.driver.String(), i.ID, err)
 		}
 		layerPaths = append(layerPaths, lp)
 		err = c.daemon.driver.Put(i.ID)
 		if err != nil {
-			return fmt.Errorf("Failed to put layer path from graphdriver %s for ImageID %s - %s", c.daemon.driver.String(), i.ID, err)
+			return derr.ErrorCodePutLayer.WithArgs(c.daemon.driver.String(), i.ID, err)
 		}
 	}
 	m, err := c.daemon.driver.GetMetadata(c.ID)
 	if err != nil {
-		return fmt.Errorf("Failed to get layer metadata - %s", err)
+		return derr.ErrorCodeGetLayerMetadata.WithArgs(err)
 	}
 	layerFolder := m["dir"]
 
@@ -136,6 +136,11 @@ func populateCommand(c *Container, env []string) error {
 func (container *Container) getSize() (int64, int64) {
 	// TODO Windows
 	return 0, 0
+}
+
+// setNetworkNamespaceKey is a no-op on Windows.
+func (container *Container) setNetworkNamespaceKey(pid int) error {
+	return nil
 }
 
 // allocateNetwork is a no-op on Windows.

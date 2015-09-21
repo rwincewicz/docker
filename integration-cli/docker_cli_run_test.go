@@ -940,7 +940,7 @@ func (s *DockerSuite) TestRunDnsDefaultOptions(c *check.C) {
 
 func (s *DockerSuite) TestRunDnsOptions(c *check.C) {
 	testRequires(c, DaemonIsLinux)
-	out, stderr, _ := dockerCmdWithStdoutStderr(c, "run", "--dns=127.0.0.1", "--dns-search=mydomain", "busybox", "cat", "/etc/resolv.conf")
+	out, stderr, _ := dockerCmdWithStdoutStderr(c, "run", "--dns=127.0.0.1", "--dns-search=mydomain", "--dns-opt=ndots:9", "busybox", "cat", "/etc/resolv.conf")
 
 	// The client will get a warning on stderr when setting DNS to a localhost address; verify this:
 	if !strings.Contains(stderr, "Localhost DNS setting") {
@@ -948,15 +948,25 @@ func (s *DockerSuite) TestRunDnsOptions(c *check.C) {
 	}
 
 	actual := strings.Replace(strings.Trim(out, "\r\n"), "\n", " ", -1)
-	if actual != "search mydomain nameserver 127.0.0.1" {
-		c.Fatalf("expected 'nameserver 127.0.0.1 search mydomain', but says: %q", actual)
+	if actual != "search mydomain nameserver 127.0.0.1 options ndots:9" {
+		c.Fatalf("expected 'search mydomain nameserver 127.0.0.1 options ndots:9', but says: %q", actual)
 	}
 
-	out, stderr, _ = dockerCmdWithStdoutStderr(c, "run", "--dns=127.0.0.1", "--dns-search=.", "busybox", "cat", "/etc/resolv.conf")
+	out, stderr, _ = dockerCmdWithStdoutStderr(c, "run", "--dns=127.0.0.1", "--dns-search=.", "--dns-opt=ndots:3", "busybox", "cat", "/etc/resolv.conf")
 
 	actual = strings.Replace(strings.Trim(strings.Trim(out, "\r\n"), " "), "\n", " ", -1)
-	if actual != "nameserver 127.0.0.1" {
-		c.Fatalf("expected 'nameserver 127.0.0.1', but says: %q", actual)
+	if actual != "nameserver 127.0.0.1 options ndots:3" {
+		c.Fatalf("expected 'nameserver 127.0.0.1 options ndots:3', but says: %q", actual)
+	}
+}
+
+func (s *DockerSuite) TestRunDnsRepeatOptions(c *check.C) {
+	testRequires(c, DaemonIsLinux)
+	out, _, _ := dockerCmdWithStdoutStderr(c, "run", "--dns=1.1.1.1", "--dns=2.2.2.2", "--dns-search=mydomain", "--dns-search=mydomain2", "--dns-opt=ndots:9", "--dns-opt=timeout:3", "busybox", "cat", "/etc/resolv.conf")
+
+	actual := strings.Replace(strings.Trim(out, "\r\n"), "\n", " ", -1)
+	if actual != "search mydomain mydomain2 nameserver 1.1.1.1 nameserver 2.2.2.2 options ndots:9 timeout:3" {
+		c.Fatalf("expected 'search mydomain mydomain2 nameserver 1.1.1.1 nameserver 2.2.2.2 options ndots:9 timeout:3', but says: %q", actual)
 	}
 }
 
@@ -2853,7 +2863,7 @@ func (s *DockerSuite) TestPtraceContainerProcsFromHost(c *check.C) {
 }
 
 func (s *DockerSuite) TestAppArmorDeniesPtrace(c *check.C) {
-	testRequires(c, SameHostDaemon, NativeExecDriver, Apparmor, DaemonIsLinux)
+	testRequires(c, SameHostDaemon, NativeExecDriver, Apparmor, DaemonIsLinux, NotGCCGO)
 
 	// Run through 'sh' so we are NOT pid 1. Pid 1 may be able to trace
 	// itself, but pid>1 should not be able to trace pid1.
@@ -3000,7 +3010,7 @@ func (s *DockerSuite) TestRunContainerNetworkModeToSelf(c *check.C) {
 	testRequires(c, DaemonIsLinux)
 	out, _, err := dockerCmdWithError("run", "--name=me", "--net=container:me", "busybox", "true")
 	if err == nil || !strings.Contains(out, "cannot join own network") {
-		c.Fatalf("using container net mode to self should result in an error")
+		c.Fatalf("using container net mode to self should result in an error\nerr: %q\nout: %s", err, out)
 	}
 }
 

@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -860,6 +861,7 @@ func (s *DockerDaemonSuite) TestDaemonIP(c *check.C) {
 	out, err := d.Cmd("run", "-d", "-p", "8000:8000", "busybox", "top")
 	c.Assert(err, check.NotNil,
 		check.Commentf("Running a container must fail with an invalid --ip option"))
+	c.Assert(strings.Contains(out, "Error starting userland proxy"), check.Equals, true)
 
 	ifName := "dummy"
 	out, err = createInterface(c, "dummy", ifName, ipStr)
@@ -1491,11 +1493,16 @@ func (s *DockerDaemonSuite) TestRunContainerWithBridgeNone(c *check.C) {
 	c.Assert(err, check.IsNil, check.Commentf("Output: %s", out))
 	c.Assert(strings.Contains(out, "eth0"), check.Equals, false,
 		check.Commentf("There shouldn't be eth0 in container in bridge mode when bridge network is disabled: %s", out))
-
+	cmd := exec.Command("ip", "l")
+	stdout := bytes.NewBuffer(nil)
+	cmd.Stdout = stdout
+	if err := cmd.Run(); err != nil {
+		c.Fatal("Failed to get host network interface")
+	}
 	out, err = s.d.Cmd("run", "--rm", "--net=host", "busybox", "ip", "l")
 	c.Assert(err, check.IsNil, check.Commentf("Output: %s", out))
-	c.Assert(strings.Contains(out, "eth0"), check.Equals, true,
-		check.Commentf("There should be eth0 in container when --net=host when bridge network is disabled: %s", out))
+	c.Assert(out, check.Equals, fmt.Sprintf("%s", stdout),
+		check.Commentf("The network interfaces in container should be the same with host when --net=host when bridge network is disabled: %s", out))
 }
 
 func (s *DockerDaemonSuite) TestDaemonRestartWithContainerRunning(t *check.C) {
@@ -1608,16 +1615,10 @@ func (s *DockerDaemonSuite) TestDaemonRestartWithContainerWithRestartPolicyAlway
 	c.Assert(strings.TrimSpace(out), check.Equals, id[:12])
 }
 
-func (s *DockerDaemonSuite) TestDaemonCorruptedSyslogAddress(c *check.C) {
-	c.Assert(s.d.Start("--log-driver=syslog", "--log-opt", "syslog-address=corrupted:1234"), check.NotNil)
-	runCmd := exec.Command("grep", "Failed to set log opts: syslog-address should be in form proto://address", s.d.LogfileName())
-	if out, _, err := runCommandWithOutput(runCmd); err != nil {
-		c.Fatalf("Expected 'Error starting daemon' message; but doesn't exist in log: %q, err: %v", out, err)
-	}
-}
-
 func (s *DockerDaemonSuite) TestDaemonWideLogConfig(c *check.C) {
-	c.Assert(s.d.Start("--log-driver=json-file", "--log-opt=max-size=1k"), check.IsNil)
+	if err := s.d.StartWithBusybox("--log-driver=json-file", "--log-opt=max-size=1k"); err != nil {
+		c.Fatal(err)
+	}
 	out, err := s.d.Cmd("run", "-d", "--name=logtest", "busybox", "top")
 	c.Assert(err, check.IsNil, check.Commentf("Output: %s, err: %v", out, err))
 	out, err = s.d.Cmd("inspect", "-f", "{{ .HostConfig.LogConfig.Config }}", "logtest")
@@ -1687,4 +1688,28 @@ func (s *DockerDaemonSuite) TestDaemonRestartLocalVolumes(c *check.C) {
 
 	_, err = s.d.Cmd("volume", "inspect", "test")
 	c.Assert(err, check.IsNil)
+}
+
+func (s *DockerDaemonSuite) TestDaemonCorruptedLogDriverAddress(c *check.C) {
+	for _, driver := range []string{
+		"syslog",
+		"gelf",
+	} {
+		args := []string{"--log-driver=" + driver, "--log-opt", driver + "-address=corrupted:42"}
+		c.Assert(s.d.Start(args...), check.NotNil, check.Commentf(fmt.Sprintf("Expected daemon not to start with invalid %s-address provided", driver)))
+		expected := fmt.Sprintf("Failed to set log opts: %s-address should be in form proto://address", driver)
+		runCmd := exec.Command("grep", expected, s.d.LogfileName())
+		if out, _, err := runCommandWithOutput(runCmd); err != nil {
+			c.Fatalf("Expected %q message; but doesn't exist in log: %q, err: %v", expected, out, err)
+		}
+	}
+}
+
+func (s *DockerDaemonSuite) TestDaemonCorruptedFluentdAddress(c *check.C) {
+	c.Assert(s.d.Start("--log-driver=fluentd", "--log-opt", "fluentd-address=corrupted:c"), check.NotNil)
+	expected := "Failed to set log opts: invalid fluentd-address corrupted:c: "
+	runCmd := exec.Command("grep", expected, s.d.LogfileName())
+	if out, _, err := runCommandWithOutput(runCmd); err != nil {
+		c.Fatalf("Expected %q message; but doesn't exist in log: %q, err: %v", expected, out, err)
+	}
 }
