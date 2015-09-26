@@ -60,7 +60,7 @@ func New(ctx logger.Context) (logger.Logger, error) {
 	// collect extra data for AMQP message
 	hostname, err := ctx.Hostname()
 	if err != nil {
-		return nil, fmt.Errorf("amqp: cannot access hostname to set source field")
+		return nil, fmt.Errorf("Cannot access hostname to set source field: %v", err)
 	}
 
 	// remove trailing slash from container name
@@ -143,30 +143,32 @@ func (s *amqpLogger) Log(msg *logger.Message) error {
 	// remove trailing and leading whitespace
 	short := bytes.TrimSpace([]byte(msg.Line))
 
-	m := amqpMessage{
-		Version:   "1",
-		Host:      s.fields.Hostname,
-		Message:   string(short),
-		Timestamp: time.Now(),
-		Path:      s.fields.ContainerID,
-		Tags:      s.fields,
-	}
+	if string(short) != "" {
+		m := amqpMessage{
+			Version:   "1",
+			Host:      s.fields.Hostname,
+			Message:   string(short),
+			Timestamp: time.Now(),
+			Path:      s.fields.ContainerID,
+			Tags:      s.fields,
+		}
 
-	messagejson, err := json.Marshal(m)
-	if err != nil {
-		fmt.Errorf("Could not serialise event - %v", err)
-	}
+		messagejson, err := json.Marshal(m)
+		if err != nil {
+			fmt.Errorf("Could not serialise event - %v", err)
+		}
 
-	amqpmsg := amqp.Publishing{
-		DeliveryMode: amqp.Persistent,
-		Timestamp:    time.Now(),
-		ContentType:  "application/json",
-		Body:         messagejson,
-	}
+		amqpmsg := amqp.Publishing{
+			DeliveryMode: amqp.Persistent,
+			Timestamp:    time.Now(),
+			ContentType:  "application/json",
+			Body:         messagejson,
+		}
 
-	err = s.c.Publish(s.ctx.Config["amqp-exchange"], s.ctx.Config["amqp-routingkey"], false, false, amqpmsg)
-	if err != nil {
-		fmt.Errorf("Could not send message - %v", err)
+		err = s.c.Publish(s.ctx.Config["amqp-exchange"], s.ctx.Config["amqp-routingkey"], false, false, amqpmsg)
+		if err != nil {
+			fmt.Errorf("Could not send message - %v", err)
+		}
 	}
 
 	return nil
