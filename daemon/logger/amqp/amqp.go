@@ -143,37 +143,6 @@ func (s *amqpLogger) Log(msg *logger.Message) error {
 	// remove trailing and leading whitespace
 	short := bytes.TrimSpace([]byte(msg.Line))
 
-	//level := "INFO"
-	//if msg.Source == "stderr" {
-	//		level = "ERROR"
-	//	}
-
-	m := amqpMessage{
-		Version:   "1",
-		Host:      s.fields.Hostname,
-		Message:   string(short),
-		Timestamp: time.Now(),
-		Path:      s.fields.ContainerID,
-		Tags:      s.fields,
-	}
-
-	return &amqpLogger{
-		ctx:    ctx,
-		fields: fields,
-		conn:   conn,
-		c:      c,
-	}, nil
-}
-
-func (s *amqpLogger) Log(msg *logger.Message) error {
-	// remove trailing and leading whitespace
-	short := bytes.TrimSpace([]byte(msg.Line))
-
-	//level := "INFO"
-	//if msg.Source == "stderr" {
-	//		level = "ERROR"
-	//	}
-
 	m := amqpMessage{
 		Version:   "1",
 		Host:      s.fields.Hostname,
