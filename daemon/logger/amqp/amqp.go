@@ -120,39 +120,39 @@ func New(ctx logger.Context) (logger.Logger, error) {
 		}
 		conn, err = amqp.DialTLS(connectURL.String(), cfg)
 		if err != nil {
-			fmt.Errorf("Could not connect to AMQP server - %v", err)
+			logrus.Errorf("Could not connect to AMQP server - %v", err)
 			return nil, err
 		}
 	} else {
 		logrus.Infof("Connecting to AMQP: %s", connectURL)
 		conn, err = amqp.Dial(connectURL.String())
 		if err != nil {
-			fmt.Errorf("Could not connect to AMQP server - %v", err)
+			logrus.Errorf("Could not connect to AMQP server - %v", err)
 			return nil, err
 		}
 	}
 
 	c, err = conn.Channel()
 	if err != nil {
-		fmt.Errorf("Could not open channel - %v", err)
+		logrus.Errorf("Could not open channel - %v", err)
 		return nil, err
 	}
 
 	err = c.ExchangeDeclare(currentBroker.Exchange, "direct", true, false, false, false, nil)
 	if err != nil {
-		fmt.Errorf("Could not create exchange - %v", err)
+		logrus.Errorf("Could not create exchange - %v", err)
 		return nil, err
 	}
 
 	_, err = c.QueueDeclare(currentBroker.Queue, true, false, false, false, nil)
 	if err != nil {
-		fmt.Errorf("Could not create queue - %v", err)
+		logrus.Errorf("Could not create queue - %v", err)
 		return nil, err
 	}
 
 	err = c.QueueBind(currentBroker.Queue, currentBroker.RoutingKey, currentBroker.Exchange, false, nil)
 	if err != nil {
-		fmt.Errorf("Could not bind queue to exchange - %v", err)
+		logrus.Errorf("Could not bind queue to exchange - %v", err)
 		return nil, err
 	}
 
@@ -208,7 +208,7 @@ func (s *amqpLogger) Log(msg *logger.Message) (err error) {
 
 		messagejson, err := json.Marshal(m)
 		if err != nil {
-			fmt.Errorf("Could not serialise event - %v", err)
+			logrus.Errorf("Could not serialise event - %v", err)
 		}
 
 		amqpmsg := amqp.Publishing{
@@ -218,9 +218,13 @@ func (s *amqpLogger) Log(msg *logger.Message) (err error) {
 			Body:         messagejson,
 		}
 
+		if s.ctx.Config["amqp-confirm"] == "true" {
+			defer confirmOne(s.conf)
+		}
+
 		err = s.c.Publish(s.ctx.Config["amqp-exchange"], s.ctx.Config["amqp-routingkey"], false, false, amqpmsg)
 		if err != nil {
-			fmt.Errorf("Could not send message - %v", err)
+			logrus.Errorf("Could not send message - %v", err)
 		}
 	}
 	return nil
