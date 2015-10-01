@@ -103,8 +103,23 @@ func New(ctx logger.Context) (logger.Logger, error) {
 		Created:       ctx.ContainerCreated,
 	}
 
-	var conn *amqp.Connection
+	connection, err := connect(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("Could not connect: %v", err)
+	}
 
+	return &amqpLogger{
+		ctx:        ctx,
+		fields:     fields,
+		connection: connection,
+	}, nil
+}
+
+func connect(ctx logger.Context) (connection *amqpConnection, err error) {
+	var conn *amqp.Connection
+	var c *amqp.Channel
+
+	var conf <-chan amqp.Confirmation
 	connectURL, err := url.Parse(ctx.Config["amqp-url"])
 	if err != nil {
 		logrus.Errorf("Invalid AMQP URL - %v", err)
@@ -196,6 +211,19 @@ func (s *amqpLogger) Log(msg *logger.Message) (err error) {
 	// Remove trailing and leading whitespace
 	short := bytes.TrimSpace([]byte(msg.Line))
 
+	if s.connection == nil {
+		logrus.Warn("Unable to send message to AMQP broker")
+		logrus.Info("Attempting to reconnect")
+		s.Close()
+		s.connection, err = connect(s.ctx)
+		if err != nil {
+			logrus.Errorf("Could not reconnect: %v", err)
+			return err
+		} else {
+			logrus.Info("Reconnected")
+		}
+	}
+
 	if string(short) != "" {
 		m := amqpMessage{
 			Version:   "1",
@@ -209,6 +237,7 @@ func (s *amqpLogger) Log(msg *logger.Message) (err error) {
 		messagejson, err := json.Marshal(m)
 		if err != nil {
 			logrus.Errorf("Could not serialise event - %v", err)
+			return err
 		}
 
 		amqpmsg := amqp.Publishing{
@@ -218,14 +247,23 @@ func (s *amqpLogger) Log(msg *logger.Message) (err error) {
 			Body:         messagejson,
 		}
 
-		if s.ctx.Config["amqp-confirm"] == "true" {
-			defer confirmOne(s.conf)
+		if s.ctx.Config["amqp-confirm"] == "true" && s.connection != nil {
+			defer confirmOne(s.connection.conf)
 		}
 
-		err = s.c.Publish(s.ctx.Config["amqp-exchange"], s.ctx.Config["amqp-routingkey"], false, false, amqpmsg)
+		err = s.connection.c.Publish(s.ctx.Config["amqp-exchange"], s.ctx.Config["amqp-routingkey"], false, false, amqpmsg)
 		if err != nil {
 			logrus.Errorf("Could not send message - %v", err)
+			logrus.Info("Attempting to reconnect")
+			s.connection, err = connect(s.ctx)
+			if err != nil {
+				logrus.Errorf("Could not reconnect: %v", err)
+				return err
+			} else {
+				logrus.Info("Reconnected")
+			}
 		}
+
 	}
 	return nil
 }
