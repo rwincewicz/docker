@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/Sirupsen/logrus"
@@ -103,7 +104,9 @@ func New(ctx logger.Context) (logger.Logger, error) {
 		Created:       ctx.ContainerCreated,
 	}
 
-	connection, err := connect(ctx)
+	broker := 0
+
+	connection, err := connect(ctx, broker)
 	if err != nil {
 		return nil, fmt.Errorf("Could not connect: %v", err)
 	}
@@ -115,32 +118,33 @@ func New(ctx logger.Context) (logger.Logger, error) {
 	}, nil
 }
 
-func connect(ctx logger.Context) (connection *amqpConnection, err error) {
+func connect(ctx logger.Context, broker int) (connection *amqpConnection, err error) {
 	var conn *amqp.Connection
 	var c *amqp.Channel
 
 	var conf <-chan amqp.Confirmation
-	connectURL, err := url.Parse(ctx.Config["amqp-url"])
+	connectURLs := parseURL(ctx.Config["amqp-url"])
+	logrus.Info(connectURLs)
 	if err != nil {
 		logrus.Errorf("Invalid AMQP URL - %v", err)
 		return nil, err
 	}
 
-	if connectURL.Scheme == "amqps" {
-		logrus.Infof("Connecting to AMQP: %s", connectURL)
+	if connectURLs[0].Scheme == "amqps" {
+		logrus.Infof("Connecting to AMQP: %s", connectURLs[broker])
 
 		cfg := new(tls.Config)
 		if cert, err := tls.LoadX509KeyPair(ctx.Config["amqp-cert"], ctx.Config["amqp-key"]); err == nil {
 			cfg.Certificates = append(cfg.Certificates, cert)
 		}
-		conn, err = amqp.DialTLS(connectURL.String(), cfg)
+		conn, err = amqp.DialTLS(connectURLs[broker].String(), cfg)
 		if err != nil {
 			logrus.Errorf("Could not connect to AMQP server - %v", err)
 			return nil, err
 		}
 	} else {
-		logrus.Infof("Connecting to AMQP: %s", connectURL)
-		conn, err = amqp.Dial(connectURL.String())
+		logrus.Infof("Connecting to AMQP: %s", connectURLs[broker])
+		conn, err = amqp.Dial(connectURLs[0].String())
 		if err != nil {
 			logrus.Errorf("Could not connect to AMQP server - %v", err)
 			return nil, err
@@ -212,15 +216,9 @@ func (s *amqpLogger) Log(msg *logger.Message) (err error) {
 	short := bytes.TrimSpace([]byte(msg.Line))
 
 	if s.connection == nil {
-		logrus.Warn("Unable to send message to AMQP broker")
-		logrus.Info("Attempting to reconnect")
-		s.Close()
-		s.connection, err = connect(s.ctx)
+		err = reconnect(s)
 		if err != nil {
-			logrus.Errorf("Could not reconnect: %v", err)
 			return err
-		} else {
-			logrus.Info("Reconnected")
 		}
 	}
 
@@ -253,14 +251,9 @@ func (s *amqpLogger) Log(msg *logger.Message) (err error) {
 
 		err = s.connection.c.Publish(s.ctx.Config["amqp-exchange"], s.ctx.Config["amqp-routingkey"], false, false, amqpmsg)
 		if err != nil {
-			logrus.Errorf("Could not send message - %v", err)
-			logrus.Info("Attempting to reconnect")
-			s.connection, err = connect(s.ctx)
+			err = reconnect(s)
 			if err != nil {
-				logrus.Errorf("Could not reconnect: %v", err)
 				return err
-			} else {
-				logrus.Info("Reconnected")
 			}
 		}
 
