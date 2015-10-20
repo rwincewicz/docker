@@ -184,10 +184,11 @@ func reconnect(s *amqpLogger) (err error) {
 	if err != nil {
 		logrus.Errorf("Could not reconnect: %v", err)
 		return err
+	} else {
+		logrus.Info("Reconnected")
+		s.connection = connection
+		return nil
 	}
-	logrus.Info("Reconnected")
-	s.connection = connection
-	return nil
 }
 
 // Take the log message and publish it to the currently connected broker
