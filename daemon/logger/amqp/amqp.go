@@ -7,7 +7,9 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -118,33 +120,48 @@ func New(ctx logger.Context) (logger.Logger, error) {
 	}, nil
 }
 
+// Connect to a broker using the information provided in the logger context. If there is more
+// than one broker in a list then try to connect to the one identified by the broker integer.
+// Return an amqpConnection.
 func connect(ctx logger.Context, broker int) (connection *amqpConnection, err error) {
 	var conn *amqp.Connection
 	var c *amqp.Channel
 
 	var conf <-chan amqp.Confirmation
-	connectURLs := parseURL(ctx.Config["amqp-url"])
-	logrus.Info(connectURLs)
+	var brokerURLs []*amqpBroker
+	// Check if a configuration file has been specified, if not then
+	// take the settings from the log-driver options
+	if ctx.Config["amqp-settings"] == "" {
+		brokerURLs = parseURL(ctx)
+	} else {
+		brokerURLs = parseJSONFile(ctx.Config["amqp-settings"])
+	}
+	logrus.Info(brokerURLs)
 	if err != nil {
 		logrus.Errorf("Invalid AMQP URL - %v", err)
 		return nil, err
 	}
 
-	if connectURLs[0].Scheme == "amqps" {
-		logrus.Infof("Connecting to AMQP: %s", connectURLs[broker])
+	currentBroker := brokerURLs[broker]
+	brokerURL := currentBroker.BrokerURL
+
+	// If the broker is being connected to using TLS then find the certificate and key files.
+	// If not then connect normally.
+	if brokerURL.Scheme == "amqps" {
+		logrus.Infof("Connecting to AMQP: %s", brokerURL)
 
 		cfg := new(tls.Config)
-		if cert, err := tls.LoadX509KeyPair(ctx.Config["amqp-cert"], ctx.Config["amqp-key"]); err == nil {
+		if cert, err := tls.LoadX509KeyPair(currentBroker.CertPath, currentBroker.KeyPath); err == nil {
 			cfg.Certificates = append(cfg.Certificates, cert)
 		}
-		conn, err = amqp.DialTLS(connectURLs[broker].String(), cfg)
+		conn, err = amqp.DialTLS(brokerURL.String(), cfg)
 		if err != nil {
 			logrus.Errorf("Could not connect to AMQP server - %v", err)
 			return nil, err
 		}
 	} else {
-		logrus.Infof("Connecting to AMQP: %s", connectURLs[broker])
-		conn, err = amqp.Dial(connectURLs[0].String())
+		logrus.Infof("Connecting to AMQP: %s", brokerURL)
+		conn, err = amqp.Dial(brokerURL.String())
 		if err != nil {
 			logrus.Errorf("Could not connect to AMQP server - %v", err)
 			return nil, err
@@ -222,6 +239,9 @@ func (s *amqpLogger) Log(msg *logger.Message) (err error) {
 		}
 	}
 
+	currentBroker := s.connection.brokerURLs[s.connection.broker]
+
+	// If the message isn't empty then send it to the broker
 	if string(short) != "" {
 		m := amqpMessage{
 			Version:   "1",
@@ -245,11 +265,11 @@ func (s *amqpLogger) Log(msg *logger.Message) (err error) {
 			Body:         messagejson,
 		}
 
-		if s.ctx.Config["amqp-confirm"] == "true" && s.connection != nil {
+		if currentBroker.Confirm == true && s.connection != nil {
 			defer confirmOne(s.connection.conf)
 		}
 
-		err = s.connection.c.Publish(s.ctx.Config["amqp-exchange"], s.ctx.Config["amqp-routingkey"], false, false, amqpmsg)
+		err = s.connection.c.Publish(currentBroker.Exchange, currentBroker.RoutingKey, false, false, amqpmsg)
 		if err != nil {
 			err = reconnect(s)
 			if err != nil {
