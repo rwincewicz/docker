@@ -15,6 +15,7 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/daemon/logger"
+	"github.com/docker/docker/daemon/logger/loggerutils"
 	"github.com/streadway/amqp"
 )
 
@@ -69,6 +70,7 @@ type amqpFields struct {
 	ImageName     string
 	Command       string
 	Tag           string
+	AMQPTag       string
 	Created       time.Time
 }
 
@@ -95,6 +97,11 @@ func New(ctx logger.Context) (logger.Logger, error) {
 	// remove trailing slash from container name
 	containerName := bytes.TrimLeft([]byte(ctx.ContainerName), "/")
 
+	tag, err := loggerutils.ParseLogTag(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+
 	fields := amqpFields{
 		Hostname:      hostname,
 		ContainerID:   ctx.ContainerID,
@@ -102,7 +109,8 @@ func New(ctx logger.Context) (logger.Logger, error) {
 		ImageID:       ctx.ContainerImageID,
 		ImageName:     ctx.ContainerImageName,
 		Command:       ctx.Command(),
-		Tag:           ctx.Config["amqp-tag"],
+		Tag:           tag,
+		AMQPTag:       ctx.Config["amqp-tag"],
 		Created:       ctx.ContainerCreated,
 	}
 
