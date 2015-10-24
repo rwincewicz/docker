@@ -182,6 +182,16 @@ func connect(ctx logger.Context, broker int) (connection *amqpConnection, err er
 		return nil, err
 	}
 
+	if currentBroker.Confirm == true {
+		logrus.Info("Enabling publish confirmation")
+		if err := c.Confirm(false); err != nil {
+			logrus.Errorf("Could not put channel into confirm mode - %v", err)
+			return nil, err
+		}
+
+		conf = c.NotifyPublish(make(chan amqp.Confirmation, 1))
+	}
+
 	err = c.ExchangeDeclare(currentBroker.Exchange, "direct", true, false, false, false, nil)
 	if err != nil {
 		logrus.Errorf("Could not create exchange - %v", err)
@@ -286,7 +296,89 @@ func (s *amqpLogger) Log(msg *logger.Message) (err error) {
 		}
 
 	}
+
 	return nil
+}
+
+// If message confirmation is enabled then ensure that the confirmation message is
+// received and dealt with
+func confirmOne(confirms <-chan amqp.Confirmation) {
+	logrus.Debug("Waiting for confirmation of publishing")
+	if confirmed := <-confirms; confirmed.Ack {
+		logrus.Debugf("Confirmed delivery with tag: %d", confirmed.DeliveryTag)
+	} else {
+		logrus.Debugf("Failed delivery with tag: %d", confirmed.DeliveryTag)
+	}
+}
+
+// Take the log-driver options and put them into a data structure. Convert any values
+// to the appropriate data type (eg string -> bool)
+func parseURL(ctx logger.Context) (brokerArray []*amqpBroker) {
+	amqpURLs := strings.Split(ctx.Config["amqp-url"], " ")
+	for _, amqpURL := range amqpURLs {
+		u, err := url.Parse(amqpURL)
+		b, err := strconv.ParseBool(ctx.Config["amqp-confirm"])
+		if err != nil {
+			logrus.Errorf("String %v is not a valid URL: %v", u, err)
+		} else {
+			broker := &amqpBroker{
+				BrokerURL:  u,
+				CertPath:   ctx.Config["amqp-cert"],
+				KeyPath:    ctx.Config["amqp-key"],
+				Exchange:   ctx.Config["amqp-exchange"],
+				Queue:      ctx.Config["amqp-queue"],
+				RoutingKey: ctx.Config["amqp-routingkey"],
+				Tag:        ctx.Config["amqp-tag"],
+				Confirm:    b,
+			}
+			brokerArray = append(brokerArray, broker)
+		}
+	}
+	return brokerArray
+}
+
+// Take the settings specified in the JSON configuration file and put them into a data
+// structure. Convert any values to their required data types
+func parseJSONFile(path string) (brokerArray []*amqpBroker) {
+	file, err := ioutil.ReadFile(path)
+	if err != nil {
+		logrus.Errorf("Could not open AMQP settings file: %v", err)
+		return nil
+	}
+	type amqpConf struct {
+		BrokerURL  string `json:"url"`
+		CertPath   string `json:"cert"`
+		KeyPath    string `json:"key"`
+		Exchange   string `json:"exchange"`
+		Queue      string `json:"queue"`
+		RoutingKey string `json:"routingkey"`
+		Tag        string `json:"tag"`
+		Confirm    bool   `json:"confirm,bool"`
+	}
+	var brokerConf []amqpConf
+	err = json.Unmarshal(file, &brokerConf)
+	if err != nil {
+		logrus.Errorf("Could not read JSON: %v", err)
+		return nil
+	}
+	for _, broker := range brokerConf {
+		u, err := url.Parse(broker.BrokerURL)
+		if err != nil {
+			logrus.Errorf("Could not read URL from JSON file: %v", err)
+		}
+		amqpConf := &amqpBroker{
+			BrokerURL:  u,
+			CertPath:   broker.CertPath,
+			KeyPath:    broker.KeyPath,
+			Exchange:   broker.Exchange,
+			Queue:      broker.Queue,
+			RoutingKey: broker.RoutingKey,
+			Tag:        broker.Tag,
+			Confirm:    broker.Confirm,
+		}
+		brokerArray = append(brokerArray, amqpConf)
+	}
+	return brokerArray
 }
 
 // Cleanly close the connection with the broker.
